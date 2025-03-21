@@ -15,6 +15,8 @@ from gymnasium import register
 from stable_baselines3.common.buffers import ReplayBuffer
 from torch.utils.tensorboard import SummaryWriter
 
+from cleanrl.ddpg_eval import evaluate
+
 
 @dataclass
 class Args:
@@ -70,15 +72,9 @@ class Args:
 
 
 def make_env(env_id, seed, idx, capture_video, run_name):
-    # register(
-    #     id="PointMassEnv-v0",
-    #     entry_point="PointMassEnv:PointMassEnv",
-    #     kwargs={"max_steps": 500},  # ✅ Set max steps here
-    #
-    # )
     register(
         id=f"{env_id}",
-        entry_point=f"{args.env_name}:{args.env_name}",
+        entry_point=f"envs.{args.env_name}:{args.env_name}",
         kwargs={"max_steps": 500},  # ✅ Set max steps here
     )
 
@@ -204,96 +200,9 @@ poetry run pip install "stable_baselines3==2.0.0a1"
     qf1_target.load_state_dict(qf1.state_dict())
     q_optimizer = optim.Adam(list(qf1.parameters()), lr=args.learning_rate)
     actor_optimizer = optim.Adam(list(actor.parameters()), lr=args.learning_rate)
-    #
-    # envs.single_observation_space.dtype = np.float32
-    # rb = ReplayBuffer(
-    #     args.buffer_size,
-    #     envs.single_observation_space,
-    #     envs.single_action_space,
-    #     device,
-    #     handle_timeout_termination=False,
-    # )
-    # start_time = time.time()
-    #
-    # # TRY NOT TO MODIFY: start the game
-    # obs, _ = envs.reset(seed=args.seed)
-    # for global_step in range(args.total_timesteps):
-    #     # ALGO LOGIC: put action logic here
-    #     if global_step < args.learning_starts:
-    #         actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
-    #     else:
-    #         with torch.no_grad():
-    #             actions = actor(torch.Tensor(obs).to(device))
-    #             actions += torch.normal(0, actor.action_scale * args.exploration_noise)
-    #             actions = actions.cpu().numpy().clip(envs.single_action_space.low, envs.single_action_space.high)
-    #
-    #             #print(f"current obs is {obs}. next action is {actions}")
-    #
-    #     # TRY NOT TO MODIFY: execute the game and log data.
-    #     next_obs, rewards, terminations, truncations, infos = envs.step(actions)
-    #
-    #
-    #
-    #     # TRY NOT TO MODIFY: record rewards for plotting purposes
-    #     if "final_info" in infos:
-    #         for info in infos["final_info"]:
-    #             print(f"global_step={global_step}, episodic_return={info['episode']['r']}")
-    #             writer.add_scalar("charts/episodic_return", info["episode"]["r"], global_step)
-    #             writer.add_scalar("charts/episodic_length", info["episode"]["l"], global_step)
-    #             if info['episode']['r'][0] > best_reward:
-    #                 best_reward = info['episode']['r'][0]
-    #                 torch.save((actor.state_dict(), qf1.state_dict()), best_model_path)
-    #                 print(f"🎯 New Best Policy Found! Saving Model with Reward {best_reward:.2f}")
-    #             break
-    #
-    #     # TRY NOT TO MODIFY: save data to reply buffer; handle `final_observation`
-    #     real_next_obs = next_obs.copy()
-    #     for idx, trunc in enumerate(truncations):
-    #         if trunc:
-    #             real_next_obs[idx] = infos["final_observation"][idx]
-    #     rb.add(obs, real_next_obs, actions, rewards, terminations, infos)
-    #
-    #     # TRY NOT TO MODIFY: CRUCIAL step easy to overlook
-    #     obs = next_obs
-    #
-    #     # ALGO LOGIC: training.
-    #     if global_step > args.learning_starts:
-    #         data = rb.sample(args.batch_size)
-    #         with torch.no_grad():
-    #             next_state_actions = target_actor(data.next_observations)
-    #             qf1_next_target = qf1_target(data.next_observations, next_state_actions)
-    #             next_q_value = data.rewards.flatten() + (1 - data.dones.flatten()) * args.gamma * (qf1_next_target).view(-1)
-    #
-    #         qf1_a_values = qf1(data.observations, data.actions).view(-1)
-    #         qf1_loss = F.mse_loss(qf1_a_values, next_q_value)
-    #
-    #         # optimize the model
-    #         q_optimizer.zero_grad()
-    #         qf1_loss.backward()
-    #         q_optimizer.step()
-    #
-    #         if global_step % args.policy_frequency == 0:
-    #             actor_loss = -qf1(data.observations, actor(data.observations)).mean()
-    #             actor_optimizer.zero_grad()
-    #             actor_loss.backward()
-    #             actor_optimizer.step()
-    #
-    #             # update the target network
-    #             for param, target_param in zip(actor.parameters(), target_actor.parameters()):
-    #                 target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
-    #             for param, target_param in zip(qf1.parameters(), qf1_target.parameters()):
-    #                 target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
-    #
-    #         if global_step % 100 == 0:
-    #             writer.add_scalar("losses/qf1_values", qf1_a_values.mean().item(), global_step)
-    #             writer.add_scalar("losses/qf1_loss", qf1_loss.item(), global_step)
-    #             writer.add_scalar("losses/actor_loss", actor_loss.item(), global_step)
-    #             print("SPS:", int(global_step / (time.time() - start_time)))
-    #             writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
 
     if args.save_model:
         model_path = "/Users/michelleshaia/projects/rl_test/cleanrl/cleanrl/runs/PointMassWithWallsDiffStartsEnv-v0__ddpg_continuous_action__1__1742594063/ddpg_continuous_action_2244.384.cleanrl_model"
-        from cleanrl_utils.evals.ddpg_eval import evaluate
 
         episodic_returns = evaluate(
             model_path,
@@ -307,13 +216,6 @@ poetry run pip install "stable_baselines3==2.0.0a1"
         )
         for idx, episodic_return in enumerate(episodic_returns):
             writer.add_scalar("eval/episodic_return", episodic_return, idx)
-
-        if args.upload_model:
-            from cleanrl_utils.huggingface import push_to_hub
-
-            repo_name = f"{args.env_id}-{args.exp_name}-seed{args.seed}"
-            repo_id = f"{args.hf_entity}/{repo_name}" if args.hf_entity else repo_name
-            push_to_hub(args, episodic_returns, repo_id, "DDPG", f"runs/{run_name}", f"videos/{run_name}-eval")
 
     envs.close()
     writer.close()
