@@ -71,12 +71,6 @@ class Args:
 
 
 def make_env(env_id, seed, idx, capture_video, run_name):
-    # register(
-    #     id="PointMassEnv-v0",
-    #     entry_point="PointMassEnv:PointMassEnv",
-    #     kwargs={"max_steps": 500},  # ✅ Set max steps here
-    #
-    # )
     register(
         id=f"{env_id}",
         entry_point=f"envs.{args.env_name}:{args.env_name}",
