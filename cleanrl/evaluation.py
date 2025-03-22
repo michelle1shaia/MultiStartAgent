@@ -45,7 +45,7 @@ class Args:
 
     # Algorithm specific arguments
     # env_id: str = "Hopper-v4"
-    env_name: str = "PointMassWithWallsDiffStartsEnv"
+    env_name: str = "CustomPointMassEnv"
     env_id: str = f"{env_name}-v0"
 
     """the environment id of the Atari game"""
@@ -95,7 +95,7 @@ def make_env(env_id, seed, idx, capture_video, run_name):
 def make_env_fixed(env_id, seed, idx, capture_video, run_name):
     register(
         id=f"{env_id}",
-        entry_point=f"{args.env_name}:{args.env_name}",
+        entry_point=f"envs.{args.env_name}:{args.env_name}",
         kwargs={"max_steps": 500,"fixed_start": True },  # ✅ Set max steps here
     )
     def thunk():
@@ -202,7 +202,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
     actor_optimizer = optim.Adam(list(actor.parameters()), lr=args.learning_rate)
 
     if args.save_model:
-        model_path = "/Users/michelleshaia/projects/rl_test/cleanrl/cleanrl/runs/PointMassWithWallsDiffStartsEnv-v0__ddpg_continuous_action__1__1742594063/ddpg_continuous_action_2244.384.cleanrl_model"
+        model_path = "/Users/michelleshaia/projects/MultiStartAgent/cleanrl/runs/CustomPointMassEnv-v0__ddpg_continuous_action__1__1742606440/ddpg_continuous_action_2318.1064.cleanrl_model"
 
         episodic_returns = evaluate(
             model_path,

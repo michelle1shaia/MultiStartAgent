@@ -15,6 +15,8 @@ from gymnasium import register
 from stable_baselines3.common.buffers import ReplayBuffer
 from torch.utils.tensorboard import SummaryWriter
 
+from cleanrl.ddpg_eval import evaluate
+
 
 @dataclass
 class Args:
@@ -43,11 +45,11 @@ class Args:
 
     # Algorithm specific arguments
     #env_id: str = "Hopper-v4"
-    env_name: str = "PointMassWithWallsDiffStartsEnv"
+    env_name: str = "CustomPointMassEnv"
     env_id: str = f"{env_name}-v0"
 
     """the environment id of the Atari game"""
-    total_timesteps: int = 1000000
+    total_timesteps: int = 60000
     """total timesteps of the experiments"""
     learning_rate: float = 3e-4
     """the learning rate of the optimizer"""
@@ -61,7 +63,7 @@ class Args:
     """the batch size of sample from the reply memory"""
     exploration_noise: float = 0.1
     """the scale of exploration noise"""
-    learning_starts: int = 50000
+    learning_starts: int = 25000
     """timestep to start learning"""
     policy_frequency: int = 2
     """the frequency of training policy (delayed)"""
@@ -74,7 +76,7 @@ def make_env(env_id, seed, idx, capture_video, run_name):
     register(
         id=f"{env_id}",
         entry_point=f"envs.{args.env_name}:{args.env_name}",
-        kwargs={"max_steps": 500, "fixed_start": False},  # ✅ Set max steps here
+        kwargs={"max_steps": 500, "fixed_start": True},  # ✅ Set max steps here
 
     )
     def thunk():
@@ -82,7 +84,7 @@ def make_env(env_id, seed, idx, capture_video, run_name):
             env = gym.make(env_id, render_mode="rgb_array")
             env = gym.wrappers.RecordVideo(env, f"videos/{run_name}")
         else:
-            env = gym.make(env_id, render_mode="human")
+            env = gym.make(env_id, render_mode=None)
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env.action_space.seed(seed)
         return env
@@ -270,10 +272,9 @@ poetry run pip install "stable_baselines3==2.0.0a1"
 
     if args.save_model:
         #model_path = f"runs/{run_name}/{args.exp_name}.cleanrl_model"
-        model_path = best_model_path
+        model_path = save_path
         #torch.save((actor.state_dict(), qf1.state_dict()), model_path)
         print(f"model saved to {model_path}")
-        from cleanrl_utils.evals.ddpg_eval import evaluate
 
         episodic_returns = evaluate(
             model_path,
@@ -287,13 +288,6 @@ poetry run pip install "stable_baselines3==2.0.0a1"
         )
         for idx, episodic_return in enumerate(episodic_returns):
             writer.add_scalar("eval/episodic_return", episodic_return, idx)
-
-        if args.upload_model:
-            from cleanrl_utils.huggingface import push_to_hub
-
-            repo_name = f"{args.env_id}-{args.exp_name}-seed{args.seed}"
-            repo_id = f"{args.hf_entity}/{repo_name}" if args.hf_entity else repo_name
-            push_to_hub(args, episodic_returns, repo_id, "DDPG", f"runs/{run_name}", f"videos/{run_name}-eval")
 
     envs.close()
     writer.close()

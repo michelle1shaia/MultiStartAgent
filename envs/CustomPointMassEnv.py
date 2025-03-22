@@ -5,7 +5,7 @@ from gymnasium import spaces
 import os
 
 
-class PointMassWithWallsDiffStartsEnv(gym.Env):
+class CustomPointMassEnv(gym.Env):
     metadata = {"render_modes": ["human", "rgb_array", None], "render_fps": 60}
 
     def __init__(self, size=500, render_mode=None, max_steps=500, fixed_start=False):
@@ -32,32 +32,32 @@ class PointMassWithWallsDiffStartsEnv(gym.Env):
                 self.screen = pygame.display.set_mode((self.size, self.size))  # Window mode
             self.clock = pygame.time.Clock()
 
-        # ✅ Keep original action space
         self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(2,), dtype=np.float32)
 
-        # ✅ Observation space is now normalized between -1 and 1
-        self.observation_space = spaces.Box(low=-1.0, high=1.0, shape=(2,), dtype=np.float32)
+        self.observation_space = spaces.Box(
+            low=np.array([0.0, -np.inf, 0.0, -np.inf], dtype=np.float32),
+            high=np.array([self.size, np.inf, self.size, np.inf], dtype=np.float32),
+        )
 
-        # ✅ Original state (not normalized)
         self.initial_state = np.array(self.fixed_state, dtype=np.float32)
-        #self.initial_state = np.array([50.0, 180.0], dtype=np.float32)
-
-        self.state = np.array(self.initial_state, dtype=np.float32)
+        self.state = np.array([self.initial_state[0], 0.0, self.initial_state[1], 0.0], dtype=np.float32)
 
         self.goal_state = np.array([self.size - 100, self.size - 50], dtype=np.float32)
         self.goal_tol = 15
+
+        self._dt = 0.1
+        self._friction = 0.2
+        self._prot_mass = 1.0
 
     def step(self, action):
         """
         Applies an action, updates the state, and returns a normalized observation.
         """
-        distance = np.linalg.norm(self.goal_state - self.state)
+        distance = np.linalg.norm(self.goal_state - self.state[[0, 2]])
 
-        # ✅ Scale action to real-world movement
         action = self.denormalize_action(action)
-
-        next_state = self.state + action  # ✅ Apply movement
-        next_x, next_y = next_state
+        next_state = self._step_internal(self.state, action)  # ✅ Apply movement
+        next_x, next_y = next_state[0], next_state[2]
 
         blocked = False  # ✅ Track if movement is blocked
 
@@ -73,76 +73,82 @@ class PointMassWithWallsDiffStartsEnv(gym.Env):
                     #print(f"🚧 Agent hit horizontal wall at y={y_start}! Cancelling movement.")
                     blocked = True
 
-        # ✅ Only update state if movement is not blocked
         if not blocked:
-            self.state = np.clip(next_state, 10.0, self.size - 10.0)  # ✅ Keep inside boundaries
+            self.state = next_state
 
         self.step_count += 1  # ✅ Increment step counter
 
-        new_distance = np.linalg.norm(self.goal_state - self.state)
+        new_distance = np.linalg.norm(self.goal_state - self.state[[0, 2]])
 
-        # ✅ Give a reward for moving closer to the goal
         reward = (distance - new_distance) * 5  # ✅ Encourage movement
-        if distance-new_distance == 0.0:
+        if distance - new_distance == 0.0:
             reward -= 100
 
         if new_distance <= self.goal_tol:
             print('Goal Reached!')
             reward += 100
+
         corner_threshold = 15
         corners = [
-            np.array([10, 10]),  # Bottom-left
-            np.array([10, self.size - 10]),  # Top-left
-            np.array([self.size - 10, 10]),  # Bottom-right
-            np.array([self.size - 10, self.size - 10])  # ✅ Top-right (fixes missing corner)
+            np.array([10, 10]),
+            np.array([10, self.size - 10]),
+            np.array([self.size - 10, 10]),
+            np.array([self.size - 10, self.size - 10])
         ]
 
         for corner in corners:
-            if np.linalg.norm(self.state - corner) < corner_threshold:
+            if np.linalg.norm(self.state[[0, 2]] - corner) < corner_threshold:
                 #print(f"🚨 Agent Stuck in Corner {corner}! Applying Penalty")
                 reward -= 300  # ✅ Apply penalty
 
-        # ✅ Episode ends if goal is reached OR max steps reached
         done = new_distance <= self.goal_tol or self.step_count >= self.max_steps
 
-        # ✅ Normalize observation before returning
-        normalized_obs = self.normalize_obs(self.state)
 
         if self.render_mode == "human":
             self.render()
 
+        normalized_obs = self.normalize_obs(self.state)
         return normalized_obs, reward, done, False, {"distance": distance, "steps": self.step_count}
 
     def reset(self, seed=None, options=None):
         """
         Resets the environment, including the step counter.
         """
-        #print(f"🚨 Reset: Last state was {self.state}")
         super().reset(seed=seed)
         if self.fixed_start:
             self.initial_state = np.array(self.fixed_state, dtype=np.float32)
-            self.state = np.array(self.fixed_state, dtype=np.float32)
         else:
             if np.random.rand() < 0.5:
                 self.initial_state = np.array(self.fixed_state, dtype=np.float32)
-                self.state = np.array(self.fixed_state, dtype=np.float32)  # ✅ Reset to initial state
             else:
-                # self.initial_state = np.array([50.0, 180.0], dtype=np.float32)
-                # self.state = np.array([50.0, 180.0], dtype=np.float32)
-                self.state = np.array(self.get_random_start_position(), dtype=np.float32)
-                self.initial_state = np.array(self.state, dtype=np.float32)
+                self.initial_state = np.array(self.get_random_start_position(), dtype=np.float32)
+
+        self.state = np.array([self.initial_state[0], 0.0, self.initial_state[1], 0.0], dtype=np.float32)
         self.step_count = 0  # ✅ Reset step counter
 
-        # ✅ Return normalized observation
         normalized_obs = self.normalize_obs(self.state)
         return normalized_obs, {}
 
+    def _step_internal(self, state, action):
+        state_der = np.zeros(4)
+        state_der[0] = state[1]
+        state_der[1] = (action[0] - self._friction * state[1]) / self._prot_mass
+        state_der[2] = state[3]
+        state_der[3] = (action[1] - self._friction * state[3]) / self._prot_mass
+
+        new_state = state + self._dt * state_der
+
+        if new_state[0] < 10 or new_state[0] > self.size - 10:
+            new_state[1] = 0
+        if new_state[2] < 10 or new_state[2] > self.size - 10:
+            new_state[3] = 0
+
+        new_state[0] = np.clip(new_state[0], 10, self.size - 10)
+        new_state[2] = np.clip(new_state[2], 10, self.size - 10)
+
+        return new_state
 
     def render(self):
-        """
-        Handles Pygame rendering, ensuring the window updates properly.
-        Works for both standalone testing and ClearRL DDPG integration.
-        """
         if self.render_mode is None:
             return
 
@@ -155,11 +161,11 @@ class PointMassWithWallsDiffStartsEnv(gym.Env):
             self.screen = pygame.display.set_mode((self.size, self.size))
 
         if self.render_mode == "rgb_array":
-            surface = pygame.Surface((self.size, self.size))  # ✅ Render to an off-screen surface
+            surface = pygame.Surface((self.size, self.size))
         else:
-            surface = self.screen  # ✅ Use actual window
+            surface = self.screen
 
-        surface.fill((255, 255, 255))  # White background
+        surface.fill((255, 255, 255))
 
         pygame.draw.rect(
             surface,
@@ -170,62 +176,63 @@ class PointMassWithWallsDiffStartsEnv(gym.Env):
         pygame.draw.circle(
             surface,
             (0, 0, 255),
-            self.state.astype(int),
+            np.array([self.state[0], self.state[2]]).astype(int),
             10
         )
 
         for x_start, y_start, x_end, y_end in self.walls:
             pygame.draw.line(
                 surface,
-                (0, 0, 0),  # ✅ Black wall
+                (0, 0, 0),
                 (x_start, y_start),
                 (x_end, y_end),
-                5  # ✅ Wall thickness
+                5
             )
 
-
         if self.render_mode == "human":
-            pygame.display.flip()  # ✅ Update the window
-            self.clock.tick(self.metadata["render_fps"])  # ✅ Maintain FPS
+            pygame.display.flip()
+            self.clock.tick(self.metadata["render_fps"])
         elif self.render_mode == "rgb_array":
-            return pygame.surfarray.array3d(surface).swapaxes(0, 1)  # ✅ Returns frame for RL algorithms
+            return pygame.surfarray.array3d(surface).swapaxes(0, 1)
 
     def close(self):
         if self.screen:
             pygame.quit()
             self.screen = None
 
-    # utils functions
     def get_random_start_position(self):
-        """
-        Selects a random legal start position that is not inside a wall.
-        """
         while True:
             random_x = np.random.uniform(10, self.size - 10)
             random_y = np.random.uniform(10, self.size - 10)
             proposed_start = np.array([random_x, random_y], dtype=np.float32)
 
             if self.is_position_legal(proposed_start):
-                return proposed_start  # ✅ Return the valid position
+                return proposed_start
 
     def normalize_obs(self, obs):
-        """ ✅ Normalize observations from [0, size] → [-1, 1] """
-        return (obs - (self.size / 2)) / (self.size / 2)  # Center around 0
+        # Normalize x and y to [-1, 1]
+        x_norm = (obs[0] - self.size / 2) / (self.size / 2)
+        y_norm = (obs[2] - self.size / 2) / (self.size / 2)
+
+        # Normalize vx and vy by expected max speed (e.g. 25 px/step)
+        vx_norm = obs[1] / 25.0
+        vy_norm = obs[3] / 25.0
+
+        return np.array([x_norm, vx_norm, y_norm, vy_norm], dtype=np.float32)
 
     @staticmethod
     def denormalize_action(action):
-        """ ✅ Convert actions from [-1, 1] → environment scale """
-        return action * 5 # Scale actions to make them effective
+        return action * 10
 
     def is_position_legal(self, position):
         x, y = position
         for x_start, y_start, x_end, y_end in self.walls:
-            if x_start == x_end:  # ✅ Vertical wall
+            if x_start == x_end:
                 if (x_start - 5 <= x <= x_start + 5) and (y_start <= y <= y_end):
-                    return False  # ❌ Invalid position (inside wall)
-
-            if y_start == y_end:  # ✅ Horizontal wall
+                    return False
+            if y_start == y_end:
                 if (y_start - 5 <= y <= y_start + 5) and (x_start <= x <= x_end):
-                    return False  # ❌ Invalid position (inside wall)
+                    return False
+        return True
 
-        return True  # ✅ Position is valid
+
